@@ -2,11 +2,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Union
+
+# Optional plotly import
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
 
 
 class PlotManager:
@@ -80,8 +86,11 @@ class PlotManager:
         else:
             df = data
             
-        if interactive:
+        if interactive and PLOTLY_AVAILABLE:
             self._plot_interactive_time_series(df, title, xlabel, ylabel, output_path)
+        elif interactive and not PLOTLY_AVAILABLE:
+            print("⚠️ Plotly not available, falling back to static plot")
+            self._plot_static_time_series(df, title, xlabel, ylabel, output_path)
         else:
             self._plot_static_time_series(df, title, xlabel, ylabel, output_path)
     
@@ -112,6 +121,9 @@ class PlotManager:
     def _plot_interactive_time_series(self, df: pd.DataFrame, title: str,
                                     xlabel: str, ylabel: str, output_path: Optional[str]):
         """Create interactive time series plot with plotly."""
+        if not PLOTLY_AVAILABLE:
+            raise ImportError("Plotly is required for interactive plots. Install with: pip install plotly")
+            
         fig = go.Figure()
         
         time_col = df.columns[0]

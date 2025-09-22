@@ -11,15 +11,18 @@ logger = logging.getLogger(__name__)
 class PBCProcessor:
     """PBC (Periodic Boundary Conditions) processing for MD trajectories."""
     
-    def __init__(self, gmx_executable: str = "gmx"):
+    def __init__(self, gmx_executable: str = "gmx", keep_temp_files: bool = False):
         """
         Initialize PBCProcessor.
         
         Args:
             gmx_executable: GROMACS executable command
+            keep_temp_files: Whether to keep temporary files for debugging (default: False)
         """
         self.gmx = gmx_executable
         self.group_selector = None  # Will be initialized when topology is provided
+        self.keep_temp_files = keep_temp_files
+        self.temp_files = []  # Track all temporary files created
         self._check_gromacs()
     
     def _check_gromacs(self):
@@ -30,6 +33,36 @@ class PBCProcessor:
             logger.info("GROMACS found and accessible")
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.warning("GROMACS not found or not accessible")
+    
+    def _register_temp_file(self, filepath: str) -> str:
+        """Register a temporary file for later cleanup."""
+        if filepath not in self.temp_files:
+            self.temp_files.append(filepath)
+            logger.debug(f"Registered temporary file: {filepath}")
+        return filepath
+    
+    def _cleanup_temp_files(self):
+        """Clean up all registered temporary files."""
+        if self.keep_temp_files:
+            logger.info(f"Keeping {len(self.temp_files)} temporary files for debugging")
+            for temp_file in self.temp_files:
+                logger.info(f"  Temp file kept: {temp_file}")
+            return
+        
+        cleaned_count = 0
+        for temp_file in self.temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    cleaned_count += 1
+                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
+        
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} temporary files")
+        
+        self.temp_files.clear()
     
     def _run_gmx_command(self, 
                         command: List[str], 
@@ -100,9 +133,9 @@ class PBCProcessor:
         if fit_group is None:
             fit_group = self.group_selector.select_group("fit_backbone")
         
-        # Temporary files
-        temp_centered = str(Path(output).with_suffix('.temp_centered.xtc'))
-        temp_whole = str(Path(output).with_suffix('.temp_whole.xtc'))
+        # Create and register temporary files
+        temp_centered = self._register_temp_file(str(Path(output).with_suffix('.temp_centered.xtc')))
+        temp_whole = self._register_temp_file(str(Path(output).with_suffix('.temp_whole.xtc')))
         
         try:
             # Step 1: Center trajectory with PBC atom
@@ -172,19 +205,14 @@ class PBCProcessor:
             return output
             
         finally:
-            # Clean up temporary files
-            temp_files = [temp_centered, temp_whole]
-            
-            # Add shortest chain index file to cleanup list if it exists
+            # Register shortest chain index file for cleanup if it exists
             if self.group_selector and self.group_selector.has_shortest_chain_group():
                 index_file = self.group_selector.get_shortest_chain_index_file()
                 if index_file:
-                    temp_files.append(index_file)
+                    self._register_temp_file(index_file)
             
-            for temp_file in temp_files:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+            # Clean up all registered temporary files
+            self._cleanup_temp_files()
     
     def extract_frames(self,
                       trajectory: str,
@@ -280,12 +308,91 @@ class PBCProcessor:
             dt=dt
         )
         
+        # Copy md.gro file if it exists for better trajectory visualization
+        copied_gro_files = self._copy_gro_file(trajectory, topology, output_path)
+        
         results = {
             "processed": final_trajectory,
             "center_group": center_group,
             "fit_group": fit_group,
-            "output_directory": str(output_path)
+            "output_directory": str(output_path),
+            "reference_structures": copied_gro_files
         }
         
         logger.info(f"Comprehensive PBC processing completed in: {output_dir}")
         return results
+    
+    def _copy_gro_file(self, trajectory: str, topology: str, output_dir: Path) -> List[str]:
+        """
+        Copy md.gro file from the source directory to output directory for trajectory visualization.
+        
+        Args:
+            trajectory: Path to trajectory file
+            topology: Path to topology file  
+            output_dir: Output directory path
+            
+        Returns:
+            List of paths to copied .gro files
+        """
+        import shutil
+        
+        # Get the source directory (where the trajectory file is located)
+        traj_path = Path(trajectory)
+        source_dir = traj_path.parent
+        
+        # Common .gro file names to look for
+        gro_candidates = [
+            "md.gro",
+            "prod.gro", 
+            "production.gro",
+            f"{traj_path.stem}.gro"  # Same base name as trajectory
+        ]
+        
+        # Also check the topology file's directory (in case files are in different locations)
+        topo_path = Path(topology)
+        search_dirs = [source_dir, topo_path.parent]
+        
+        # Remove duplicates while preserving order
+        search_dirs = list(dict.fromkeys(search_dirs))
+        
+        copied_files = []
+        
+        for search_dir in search_dirs:
+            for gro_name in gro_candidates:
+                gro_file = search_dir / gro_name
+                
+                if gro_file.exists() and gro_file.is_file():
+                    try:
+                        # Copy to output directory with descriptive name
+                        if gro_name == "md.gro":
+                            dest_name = "md.gro"
+                        else:
+                            dest_name = f"reference_{gro_name}"
+                        
+                        dest_path = output_dir / dest_name
+                        
+                        # Avoid copying the same file multiple times
+                        if dest_path.exists():
+                            continue
+                            
+                        shutil.copy2(gro_file, dest_path)
+                        copied_files.append(str(dest_path))
+                        logger.info(f"Copied structure file: {gro_file} -> {dest_path}")
+                        
+                        # If we found md.gro, we're done (highest priority)
+                        if gro_name == "md.gro":
+                            return copied_files
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to copy {gro_file}: {e}")
+        
+        if copied_files:
+            logger.info(f"Successfully copied {len(copied_files)} structure file(s) for trajectory visualization")
+        else:
+            # If no .gro file found, log the search locations for debugging
+            logger.info("No .gro structure file found in the following locations:")
+            for search_dir in search_dirs:
+                logger.info(f"  - {search_dir}")
+            logger.info("Trajectory processing will continue without reference structure")
+        
+        return copied_files

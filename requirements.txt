@@ -1,7 +1,19 @@
-MDAnalysis>=2.6.0
+# AfterMD - Core Dependencies
+# 
+# This file specifies the exact versions needed for AfterMD to function properly.
+# For installation, you can use either:
+#   pip install -r requirements.txt  (exact versions)
+#   pip install -e .                 (flexible versions from setup.py)
+
+# Core scientific computing
 numpy>=1.24.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
 pandas>=2.0.0
 scipy>=1.10.0
+
+# MD analysis
+MDAnalysis>=2.6.0
+
+# Visualization
+matplotlib>=3.7.0
+seaborn>=0.12.0
 plotly>=5.15.0

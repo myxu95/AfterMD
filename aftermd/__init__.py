@@ -13,11 +13,17 @@ from .utils import BatchProcessor, PlotManager, PathManager
 
 # Analysis modules - Core functionality
 from .analysis import (
-    trajectory, structure,
+    trajectory, structure, quality,
     RMSDCalculator, RDFCalculator, RadiusGyrationCalculator,
     DistanceCalculator, HydrogenBondAnalyzer,
     BFactorAnalyzer, ContactMapCalculator, 
     GeometryAnalyzer, AtomInfoExtractor
+)
+
+# Quality analysis modules
+from .analysis.quality import (
+    MDCompletenessChecker, StructureValidator,
+    BatchTracker, QualityReporter
 )
 
 # Preprocessing modules
@@ -36,7 +42,8 @@ __all__ = [
     "PathManager",
     # Analysis submodules
     "trajectory",
-    "structure", 
+    "structure",
+    "quality",
     # Trajectory analysis
     "RMSDCalculator",
     "RDFCalculator",
@@ -48,6 +55,11 @@ __all__ = [
     "ContactMapCalculator",
     "GeometryAnalyzer",
     "AtomInfoExtractor",
+    # Quality analysis
+    "MDCompletenessChecker",
+    "StructureValidator",
+    "BatchTracker",
+    "QualityReporter",
     # Preprocessing
     "PBCProcessor",
     # Batch processing

@@ -1,0 +1,38 @@
+# AfterMD Conda Environment Configuration
+# Usage: conda env create -f environment.yml
+
+name: aftermd
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python version
+  - python=3.9
+
+  # Core scientific computing (conda versions for better compatibility)
+  - numpy>=1.24.0
+  - pandas>=2.0.0
+  - scipy>=1.10.0
+  - matplotlib>=3.7.0
+
+  # MD analysis
+  - mdanalysis>=2.6.0
+
+  # Visualization
+  - seaborn>=0.12.0
+  
+  # Optional dependencies via pip
+  - pip
+  - pip:
+    - plotly>=5.15.0
+
+  # Development tools (optional)
+  - pytest>=7.0
+  - black>=23.0
+  - flake8>=6.0
+
+# Additional packages for HPC environments
+  - git
+  - wget
+  - curl

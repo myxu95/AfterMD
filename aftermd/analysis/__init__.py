@@ -1,5 +1,6 @@
 from . import trajectory
 from . import structure
+from . import quality
 
 # Import individual modules for convenience
 from .trajectory import (
@@ -17,10 +18,18 @@ from .structure import (
     AtomInfoExtractor
 )
 
+from .quality import (
+    MDCompletenessChecker,
+    StructureValidator,
+    BatchTracker,
+    QualityReporter
+)
+
 __all__ = [
     # Submodules
     "trajectory",
     "structure",
+    "quality",
     # Trajectory analysis modules
     "RMSDCalculator",
     "RDFCalculator",
@@ -31,5 +40,10 @@ __all__ = [
     "BFactorAnalyzer",
     "ContactMapCalculator",
     "GeometryAnalyzer",
-    "AtomInfoExtractor"
+    "AtomInfoExtractor",
+    # Quality analysis modules
+    "MDCompletenessChecker",
+    "StructureValidator",
+    "BatchTracker",
+    "QualityReporter"
 ]

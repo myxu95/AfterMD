@@ -8,6 +8,49 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Global function for multiprocessing compatibility
+def _process_md_task_global(task_info: Tuple[str, Tuple[str, str]], 
+                           output_base_dir: str, dt: Optional[float], 
+                           gmx_executable: str) -> Dict[str, Any]:
+    """
+    Global function to process a single MD task - required for pickle compatibility.
+    """
+    from ..preprocessing.pbc_processor import PBCProcessor
+    
+    task_name, (trajectory, topology) = task_info
+    
+    try:
+        logger.info(f"Processing task: {task_name}")
+        
+        # Create task-specific output directory
+        task_output_dir = Path(output_base_dir) / task_name
+        task_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize PBC processor
+        pbc_processor = PBCProcessor(gmx_executable)
+        
+        # Run comprehensive PBC processing
+        result = pbc_processor.comprehensive_pbc_process(
+            trajectory=trajectory,
+            topology=topology,
+            output_dir=str(task_output_dir),
+            dt=dt
+        )
+        
+        result["task_name"] = task_name
+        result["status"] = "success"
+        logger.info(f"Successfully processed task: {task_name}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to process task {task_name}: {e}")
+        return {
+            "task_name": task_name,
+            "status": "failed",
+            "error": str(e)
+        }
+
+
 class BatchProcessor:
     """Batch processing utility for handling multiple files efficiently."""
     
@@ -217,55 +260,16 @@ class BatchProcessor:
         # Create output base directory
         Path(output_base_dir).mkdir(parents=True, exist_ok=True)
         
-        # Process each task
-        def process_single_task(task_info: Tuple[str, Tuple[str, str]]) -> Dict[str, Any]:
-            task_name, (trajectory, topology) = task_info
-            
-            try:
-                logger.info(f"Processing task: {task_name}")
-                
-                # Create task-specific output directory
-                task_output_dir = Path(output_base_dir) / task_name
-                task_output_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Initialize PBC processor
-                pbc_processor = PBCProcessor(gmx_executable)
-                
-                # Run comprehensive PBC processing
-                result = pbc_processor.comprehensive_pbc_process(
-                    trajectory=trajectory,
-                    topology=topology,
-                    output_dir=str(task_output_dir),
-                    dt=dt
-                )
-                
-                result["task_name"] = task_name
-                result["status"] = "success"
-                logger.info(f"Successfully processed task: {task_name}")
-                return result
-                
-            except Exception as e:
-                logger.error(f"Failed to process task {task_name}: {e}")
-                return {
-                    "task_name": task_name,
-                    "status": "failed",
-                    "error": str(e)
-                }
-        
         # Prepare task list for parallel processing
         task_list = list(discovered_tasks.items())
         
-        # Process tasks in parallel
-        results = self.process_files(
-            files=[],  # Not used in this context
-            process_func=lambda _: None,  # Not used in this context
-            use_multiprocessing=True
-        )
-        
-        # Use custom parallel processing for tasks
+        # Use custom parallel processing for tasks with global function
         executor_class = ProcessPoolExecutor
         with executor_class(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(process_single_task, task_info) for task_info in task_list]
+            futures = [
+                executor.submit(_process_md_task_global, task_info, output_base_dir, dt, gmx_executable) 
+                for task_info in task_list
+            ]
             results = []
             
             for future in futures:

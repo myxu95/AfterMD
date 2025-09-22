@@ -49,8 +49,8 @@ class SlurmScriptGenerator:
     def _get_default_slurm_params(self) -> Dict[str, Any]:
         """Get default SLURM parameters."""
         return {
-            "partition": "multi",
-            "time": "7-00:00:00",
+            "partition": "quick",
+            "time": "12:00:00",
             "nodes": 1,
             "ntasks": 1,
             "cpus_per_task": 11,
@@ -83,11 +83,13 @@ class SlurmScriptGenerator:
 #SBATCH --cpus-per-task={cpus_per_task}
 {gres_line}
 {memory_line}
-{conda_activation}
 
 # Environment setup
 export LD_LIBRARY_PATH={ld_library_path}:$LD_LIBRARY_PATH
 source {gromacs_module}
+
+# Activate conda environment
+source /public/home/xmy/app/miniconda/bin/activate aftermd
 
 # Job information
 echo "Start time: $(date)"
@@ -421,6 +423,11 @@ echo "Activated conda environment: {params['conda_env']}"
 # AfterMD Batch Job Submission Script
 # Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "Current directory: $(pwd)"
 echo "Submitting {len(script_paths)} AfterMD batch jobs..."
 echo ""
 
@@ -428,9 +435,30 @@ echo ""
         
         for i, script_path in enumerate(script_paths, 1):
             script_name = Path(script_path).name
+            # Use relative path if script is in same directory as submission script
+            script_path_obj = Path(script_path)
+            output_dir_obj = Path(output_dir)
+            
+            try:
+                # Try to get relative path from submission script directory
+                relative_path = script_path_obj.relative_to(output_dir_obj)
+                script_ref = str(relative_path)
+            except ValueError:
+                # Fall back to absolute path if relative path fails
+                script_ref = str(script_path_obj.resolve())
+            
             submit_content += f"""# Submit batch {i}/{len(script_paths)}
 echo "Submitting {script_name}..."
-sbatch "{script_path}"
+if [ -f "{script_ref}" ]; then
+    sbatch "{script_ref}"
+    if [ $? -eq 0 ]; then
+        echo "  ✅ Successfully submitted {script_name}"
+    else
+        echo "  ❌ Failed to submit {script_name}"
+    fi
+else
+    echo "  ❌ Script not found: {script_ref}"
+fi
 """
             
             if i < len(script_paths) and submit_delay > 0:

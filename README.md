@@ -17,9 +17,21 @@
 ## ⚡ 快速开始
 
 ### 安装
+
+#### Conda 环境安装 (推荐)
 ```bash
 git clone https://github.com/your-username/AfterMD.git
 cd AfterMD
+conda env create -f environment.yml
+conda activate aftermd
+pip install -e .
+```
+
+#### Pip 直接安装
+```bash
+git clone https://github.com/your-username/AfterMD.git
+cd AfterMD
+pip install -r requirements.txt
 pip install -e .
 ```
 
@@ -97,6 +109,13 @@ gmx trjconv -pbc whole
 
 # Step 3: 使用 backbone 进行结构对齐
 gmx trjconv -fit rot+trans
+```
+
+### 自动结构文件复制
+```python
+# AfterMD 自动复制 md.gro 文件到输出目录
+# 优先级: md.gro > prod.gro > production.gro > {trajectory_name}.gro
+# 便于后续轨迹可视化和分析
 ```
 
 ### SLURM 作业优化

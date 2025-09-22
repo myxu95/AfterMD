@@ -27,6 +27,7 @@ class GroupSelector:
         self.config_file = Path.home() / ".aftermd_groups.json"
         self.peptide_chains = {}
         self.shortest_chain_index_file = None
+        self.shortest_chain_group_id = None
         
         # Load user configurations if available
         self._load_user_config()
@@ -395,11 +396,22 @@ class GroupSelector:
                 Path(all_chains_ndx).unlink(missing_ok=True)
                 return
             
-            # Step 4: Generate final index file containing only the shortest chain
-            self._generate_shortest_chain_only_index(shortest_chain, all_chains_ndx)
+            # Step 4: Find the group ID for the shortest chain and store it
+            shortest_group_id = self._find_group_id_in_index(all_chains_ndx, shortest_chain[0])
             
-            # Cleanup temporary all-chains file
-            Path(all_chains_ndx).unlink(missing_ok=True)
+            if shortest_group_id is not None:
+                # Store the all-chains index file and group ID for direct use
+                self.shortest_chain_index_file = all_chains_ndx
+                self.shortest_chain_group_id = str(shortest_group_id)
+                
+                # Update group mappings to use the direct group ID
+                self.group_mappings["center_shortest_chain"] = [str(shortest_group_id)]
+                
+                logger.info(f"Shortest chain '{shortest_chain[0]}' available as group {shortest_group_id}")
+                logger.info(f"Using index file: {all_chains_ndx}")
+            else:
+                logger.warning("Could not find group ID for shortest chain")
+                Path(all_chains_ndx).unlink(missing_ok=True)
             
         except Exception as e:
             logger.warning(f"Failed to analyze peptide chains: {e}")
@@ -635,13 +647,17 @@ class GroupSelector:
                 if i + 1 < len(sections):
                     atom_data = sections[i + 1].strip()
                     
-                    # Check if this looks like a protein chain
-                    if self._is_chain_group_name(group_name):
-                        # Count atoms in this group
-                        atom_count = self._count_atoms_in_group_data(atom_data)
-                        if atom_count > 0:
+                    # Log all non-empty groups for debugging
+                    atom_count = self._count_atoms_in_group_data(atom_data)
+                    if atom_count > 0:
+                        logger.debug(f"Found group: {group_name} with {atom_count} atoms")
+                        
+                        # Check if this looks like a protein chain
+                        if self._is_chain_group_name(group_name):
                             chain_info[group_name] = atom_count
-                            logger.info(f"Found chain: {group_name} with {atom_count} atoms")
+                            logger.info(f"Identified as chain: {group_name} with {atom_count} atoms")
+                        else:
+                            logger.debug(f"Not identified as chain: {group_name}")
             
             logger.info(f"Analyzed {len(chain_info)} chains from index file")
             return chain_info
@@ -651,24 +667,35 @@ class GroupSelector:
             return {}
     
     def _is_chain_group_name(self, group_name: str) -> bool:
-        """Check if group name represents a protein chain."""
-        # Look for typical chain group patterns
-        chain_patterns = [
-            'protein_chain',
-            'chain_',
-            '_chain',
-            'protein.*chain',
-            '^ch[0-9]+_protein',
-        ]
-        
+        """Check if group name represents a protein chain from splitch command."""
+        # splitch 1 can generate various naming patterns depending on GROMACS version and system
         group_lower = group_name.lower()
         
-        # Check for chain patterns
+        # Common splitch-generated chain patterns
+        chain_patterns = [
+            r'^protein_chain_[a-z]$',       # Protein_chain_A, Protein_chain_B, ...
+            r'^protein_chain_\d+$',         # Protein_chain_1, Protein_chain_2, ...
+            r'^protein_chain[a-z]$',        # Protein_chainA, Protein_chainB, ...
+            r'^protein_chain\d+$',          # Protein_chain1, Protein_chain2, ...
+            r'^ch\d+_protein$',             # ch0_Protein, ch1_Protein, ...
+            r'^chain_[a-z]$',               # Chain_A, Chain_B, ...
+            r'^chain_\d+$',                 # Chain_1, Chain_2, ...
+            r'^protein[a-z]$',              # ProteinA, ProteinB, ...
+            r'^protein\d+$',                # Protein1, Protein2, ...
+        ]
+        
+        # Check all patterns
         for pattern in chain_patterns:
-            if re.search(pattern, group_lower):
+            if re.match(pattern, group_lower):
+                logger.debug(f"Chain group matched pattern '{pattern}': {group_name}")
                 return True
         
-        # Also check if it's not an obvious non-chain group
+        # Additional flexible matching: any group containing both "protein" and "chain"
+        if 'protein' in group_lower and 'chain' in group_lower:
+            logger.debug(f"Chain group matched flexible pattern (protein+chain): {group_name}")
+            return True
+        
+        # Check if it's not an obvious non-chain group
         non_chain_keywords = ['system', 'water', 'sol', 'ion', 'sod', 'cla', 'backbone', 'mainchain']
         for keyword in non_chain_keywords:
             if keyword in group_lower:
@@ -709,40 +736,51 @@ class GroupSelector:
         return shortest
     
     def _is_valid_peptide_chain(self, chain_name: str, atom_count: int) -> bool:
-        """Check if this is a valid peptide chain (not ion, water, etc.)."""
+        """Check if this is a valid peptide chain from splitch command."""
         
-        # 1. Minimum atom count filter (avoid ions and small molecules)
-        if atom_count < 50:  # Less than 50 atoms is likely an ion or small molecule
-            logger.debug(f"Chain {chain_name} has too few atoms ({atom_count}), likely not a peptide")
+        # Since splitch 1 only splits protein chains, groups matching our patterns are valid
+        # Just need basic sanity checks
+        
+        # 1. Minimum atom count (avoid empty or tiny groups)
+        if atom_count < 10:  # Very small threshold since splitch should give valid chains
+            logger.debug(f"Chain {chain_name} has too few atoms ({atom_count})")
             return False
         
-        # 2. Maximum atom count filter (avoid huge aggregates)
-        if atom_count > 50000:  # More than 50k atoms might be an error
-            logger.debug(f"Chain {chain_name} has too many atoms ({atom_count}), might be an aggregate")
+        # 2. Maximum atom count (avoid errors)
+        if atom_count > 100000:  # Very large threshold
+            logger.debug(f"Chain {chain_name} has suspiciously many atoms ({atom_count})")
             return False
         
-        # 3. Name-based filtering
-        chain_lower = chain_name.lower()
-        
-        # Exclude obvious non-peptide groups
-        invalid_keywords = [
-            'sod', 'cla', 'na', 'mg', 'ca', 'zn', 'k',  # ions
-            'hoh', 'wat', 'tip', 'spc',                   # water
-            'drug', 'lig', 'het', 'unk',                  # ligands
-            'membrane', 'lipid'                           # membrane components
-        ]
-        
-        for keyword in invalid_keywords:
-            if keyword in chain_lower:
-                logger.debug(f"Chain {chain_name} contains invalid keyword '{keyword}'")
-                return False
-        
-        # 4. If it has "protein" or "chain" in name, it's likely valid
-        if 'protein' in chain_lower or 'chain' in chain_lower:
-            return True
-        
-        # 5. Default to valid if passes other filters
-        return True
+        # 3. If it matches our chain pattern, it's valid (splitch already filtered for us)
+        return self._is_chain_group_name(chain_name)
+    
+    def _find_group_id_in_index(self, index_file: str, target_chain_name: str) -> Optional[int]:
+        """Find the group ID for a specific chain name in the index file."""
+        try:
+            with open(index_file, 'r') as f:
+                content = f.read()
+            
+            # Parse the index file to find group IDs
+            sections = re.split(r'\[\s*([^\]]+)\s*\]', content)
+            group_id = 0
+            
+            for i in range(1, len(sections), 2):  # Skip empty sections
+                if i + 1 < len(sections):
+                    group_name = sections[i].strip()
+                    atom_data = sections[i + 1].strip()
+                    
+                    if atom_data:  # Only count non-empty groups
+                        if group_name == target_chain_name:
+                            logger.info(f"Found target chain '{target_chain_name}' at group ID {group_id}")
+                            return group_id
+                        group_id += 1
+            
+            logger.warning(f"Target chain '{target_chain_name}' not found in index file")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to find group ID in index file: {e}")
+            return None
     
     def _generate_shortest_chain_only_index(self, shortest_chain: Tuple[str, int], all_chains_index: str):
         """Generate final index file containing only the shortest chain."""
@@ -841,6 +879,10 @@ class GroupSelector:
         return None
     
     def get_shortest_chain_group_id(self) -> Optional[str]:
+        """Get the group ID for the shortest chain."""
+        return self.shortest_chain_group_id
+    
+    def get_direct_shortest_chain_group_id(self) -> Optional[str]:
         """Get the group ID for the shortest chain from the generated index file."""
         return self.get_group_id_from_index("Shortest_Chain")
     
