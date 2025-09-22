@@ -258,12 +258,6 @@ results = batch.process_files(file_list, my_custom_processor)
 
 本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
 
-## 🙏 致谢
-
-- [GROMACS](https://gromacs.org) - 强大的 MD 模拟软件
-- [MDAnalysis](https://mdanalysis.org) - 轨迹分析库
-- 所有使用和改进 AfterMD 的研究者们
-
 ## 📞 联系
 
 - 项目主页: [https://github.com/your-username/AfterMD](https://github.com/your-username/AfterMD)
