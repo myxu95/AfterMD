@@ -260,9 +260,8 @@ results = batch.process_files(file_list, my_custom_processor)
 
 ## 📞 联系
 
-- 项目主页: [https://github.com/your-username/AfterMD](https://github.com/your-username/AfterMD)
-- 问题报告: [Issues](https://github.com/your-username/AfterMD/issues)
-- 文档: [Wiki](https://github.com/your-username/AfterMD/wiki)
+- 项目主页: [https://github.com/myxu95/AfterMD](https://github.com/myxu95/AfterMD)
+- 邮箱：myuxu@zju.edu.cn
 
 ---
 
