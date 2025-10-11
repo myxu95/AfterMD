@@ -169,19 +169,62 @@ echo "Batch processing completed"
             String containing the processing commands
         """
         if use_python_module:
-            # Use the python module interface
-            cmd_parts = [
-                "python -m aftermd.batch_process",
-                f'"{base_input_dir}"',
-                f'--output "{base_output_dir}"'
-            ]
-            
-            if dt is not None:
-                cmd_parts.append(f"--dt {dt}")
-            
-            cmd_parts.append("--verbose")
-            
-            command = " ".join(cmd_parts)
+            # Use specific task processing approach
+            task_names = list(batch_tasks.keys())
+
+            # Create python script that processes only specific tasks
+            command = f"""python -c "
+import sys
+sys.path.append('/public/home/xmy/tools/AfrerMD')
+from aftermd.utils.batch_processor import BatchProcessor
+from aftermd.preprocessing.pbc_processor import PBCProcessor
+from pathlib import Path
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Task list for this batch
+batch_tasks = {repr(batch_tasks)}
+base_input_dir = '{base_input_dir}'
+base_output_dir = '{base_output_dir}'
+
+logger.info(f'Processing batch of {{len(batch_tasks)}} tasks')
+
+# Process each task
+results = []
+for task_name, (trajectory, topology) in batch_tasks.items():
+    try:
+        logger.info(f'Processing task: {{task_name}}')
+
+        # Create task output directory
+        task_output_dir = Path(base_output_dir) / f'{{task_name}}_processed'
+        task_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Initialize PBC processor
+        pbc_processor = PBCProcessor(gmx_executable='gmx')
+
+        # Process task
+        result = pbc_processor.comprehensive_pbc_process(
+            trajectory=trajectory,
+            topology=topology,
+            output_dir=str(task_output_dir),
+            dt={dt if dt else 'None'}
+        )
+
+        results.append({{'task_name': task_name, 'status': 'success', 'result': result}})
+        logger.info(f'Task {{task_name}} completed successfully')
+
+    except Exception as e:
+        logger.error(f'Task {{task_name}} failed: {{e}}')
+        results.append({{'task_name': task_name, 'status': 'failed', 'error': str(e)}})
+
+# Summary
+successful = len([r for r in results if r['status'] == 'success'])
+failed = len([r for r in results if r['status'] == 'failed'])
+logger.info(f'Batch completed: {{successful}} successful, {{failed}} failed')
+" """
             
         else:
             # Use direct python script approach
@@ -513,7 +556,8 @@ def generate_slurm_scripts_for_md_tasks(simulations_path: str,
                                        output_suffix: Optional[str] = None,
                                        slurm_params: Optional[Dict[str, Any]] = None,
                                        dt: Optional[float] = None,
-                                       template_file: Optional[str] = None) -> Dict[str, Any]:
+                                       template_file: Optional[str] = None,
+                                       qualified_mds: Optional[List] = None) -> Dict[str, Any]:
     """
     Convenience function to generate SLURM scripts for MD batch processing.
     
@@ -526,6 +570,7 @@ def generate_slurm_scripts_for_md_tasks(simulations_path: str,
         slurm_params: Custom SLURM parameters
         dt: Time sampling interval  
         template_file: Custom SLURM template file
+        qualified_mds: List of qualified MD paths (if None, process all MDs)
         
     Returns:
         Dictionary with generation results and file paths
@@ -549,13 +594,36 @@ def generate_slurm_scripts_for_md_tasks(simulations_path: str,
     
     # Discover MD tasks
     logger.info(f"Discovering MD tasks in: {simulations_path}")
-    md_tasks = discover_md_tasks(simulations_path)
+    all_md_tasks = discover_md_tasks(simulations_path)
+    
+    # Filter MD tasks based on qualified list if provided
+    if qualified_mds is not None:
+        logger.info(f"Filtering MD tasks based on qualified list ({len(qualified_mds)} qualified)")
+        md_tasks = {}
+        qualified_paths = {str(Path(md_path).resolve()) for md_path in qualified_mds}
+        
+        for task_name, task_files in all_md_tasks.items():
+            # Check if this task's directory is in the qualified list
+            task_dir = Path(simulations_path) / task_name
+            task_path = str(task_dir.resolve())
+            
+            if task_path in qualified_paths:
+                md_tasks[task_name] = task_files
+                logger.debug(f"Included qualified MD task: {task_name}")
+            else:
+                logger.debug(f"Skipped unqualified MD task: {task_name}")
+        
+        logger.info(f"Filtered to {len(md_tasks)} qualified MD tasks")
+    else:
+        logger.info("No quality filtering applied - processing all discovered MD tasks")
+        md_tasks = all_md_tasks
     
     if not md_tasks:
-        logger.error("No valid MD tasks found for SLURM script generation")
+        error_msg = "No qualified MD tasks found" if qualified_mds else "No valid MD tasks found"
+        logger.error(f"{error_msg} for SLURM script generation")
         return {
             "success": False,
-            "error": "No valid MD tasks found",
+            "error": error_msg,
             "scripts": [],
             "submission_script": None
         }

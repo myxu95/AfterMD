@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import logging
+from .simple_gro_detector import create_shortest_chain_index
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ class GroupSelector:
     def __init__(self, topology_file: str, gmx_executable: str = "gmx"):
         """
         Initialize GroupSelector.
-        
+
         Args:
             topology_file: Topology file (.tpr, .gro, .pdb)
             gmx_executable: GROMACS executable command
@@ -25,18 +26,17 @@ class GroupSelector:
         self.available_groups = {}
         self.group_mappings = self._load_default_mappings()
         self.config_file = Path.home() / ".aftermd_groups.json"
-        self.peptide_chains = {}
         self.shortest_chain_index_file = None
         self.shortest_chain_group_id = None
-        
+
         # Load user configurations if available
         self._load_user_config()
-        
+
         # Detect available groups
         self._detect_available_groups()
-        
-        # Analyze peptide chains for center group selection
-        self._analyze_peptide_chains()
+
+        # Try to create shortest chain index from md.gro
+        self._try_create_shortest_chain_index()
     
     def _load_default_mappings(self) -> Dict[str, List[str]]:
         """Load default group mappings based on standard GROMACS group indices."""
@@ -116,6 +116,8 @@ class GroupSelector:
             logger.warning("gmx make_ndx timed out")
         except subprocess.CalledProcessError as e:
             logger.warning(f"gmx make_ndx failed: {e}")
+            logger.debug(f"make_ndx stderr: {e.stderr}")
+            logger.debug(f"make_ndx stdout: {e.stdout}")
             
     def _parse_make_ndx_output(self, output: str):
         """Parse gmx make_ndx output to extract group information."""
@@ -371,51 +373,64 @@ class GroupSelector:
         
         return suggestions
     
-    def _analyze_peptide_chains(self):
-        """Analyze peptide chains using two-step gmx make_ndx approach."""
+    def _try_create_shortest_chain_index(self):
+        """严格的最短链检测 - 必须成功才能继续处理"""
         try:
-            logger.info("Analyzing peptide chains to find shortest chain...")
-            
-            # Step 1: Generate ndx file with all chains
-            all_chains_ndx = self._generate_all_chains_index()
-            if not all_chains_ndx:
-                logger.warning("Failed to generate all chains index file")
-                return
-            
-            # Step 2: Parse the all-chains ndx file to analyze chain lengths
-            chain_info = self._parse_chains_from_index_file(all_chains_ndx)
-            if not chain_info:
-                logger.warning("No valid chains found in index file")
-                Path(all_chains_ndx).unlink(missing_ok=True)
-                return
-            
-            # Step 3: Find shortest valid peptide chain
-            shortest_chain = self._find_shortest_valid_chain(chain_info)
-            if not shortest_chain:
-                logger.warning("No suitable shortest chain found")
-                Path(all_chains_ndx).unlink(missing_ok=True)
-                return
-            
-            # Step 4: Find the group ID for the shortest chain and store it
-            shortest_group_id = self._find_group_id_in_index(all_chains_ndx, shortest_chain[0])
-            
-            if shortest_group_id is not None:
-                # Store the all-chains index file and group ID for direct use
-                self.shortest_chain_index_file = all_chains_ndx
-                self.shortest_chain_group_id = str(shortest_group_id)
-                
-                # Update group mappings to use the direct group ID
-                self.group_mappings["center_shortest_chain"] = [str(shortest_group_id)]
-                
-                logger.info(f"Shortest chain '{shortest_chain[0]}' available as group {shortest_group_id}")
-                logger.info(f"Using index file: {all_chains_ndx}")
+            from .strict_shortest_chain_detector import detect_shortest_chain_strict
+
+            # 查找md.gro文件
+            md_gro_path = self._find_md_gro_file()
+
+            logger.info("🔍 开始严格的最短链检测")
+            logger.info(f"   TPR文件: {self.topology}")
+            if md_gro_path:
+                logger.info(f"   GRO文件: {md_gro_path}")
             else:
-                logger.warning("Could not find group ID for shortest chain")
-                Path(all_chains_ndx).unlink(missing_ok=True)
-            
+                logger.info("   未找到GRO文件，仅使用TPR进行检测")
+
+            # 执行严格的最短链检测 - 只有这一种选择
+            group_id, index_file = detect_shortest_chain_strict(
+                topology_file=self.topology,
+                gro_file=md_gro_path,
+                gmx_executable=self.gmx
+            )
+
+            # 设置检测结果
+            self.shortest_chain_index_file = index_file
+            self.shortest_chain_group_id = group_id
+
+            # 更新组映射，严格仅使用最短链
+            self.group_mappings["center_protein"] = [group_id]
+
+            logger.info(f"✅ 最短链检测成功!")
+            logger.info(f"   组ID: {group_id}")
+            logger.info(f"   Index文件: {index_file}")
+            logger.info(f"   严格使用最短链进行居中")
+
         except Exception as e:
-            logger.warning(f"Failed to analyze peptide chains: {e}")
-            logger.info("Will fallback to standard protein group for centering")
+            logger.error(f"❌ 最短链检测失败: {e}")
+            logger.error("❌ 对于复合物系统，必须能够检测到最短链(peptide)用于居中")
+            logger.error("❌ 不能使用任何其他组替代，停止处理以保证科学正确性")
+            raise RuntimeError(f"最短链检测失败，无法安全处理复合物: {e}")
+
+    def _find_md_gro_file(self) -> Optional[str]:
+        """查找md.gro文件"""
+        # 搜索目录：拓扑文件所在目录和当前目录
+        topo_path = Path(self.topology)
+        search_dirs = [topo_path.parent, Path.cwd()]
+
+        for search_dir in search_dirs:
+            md_gro = search_dir / "md.gro"
+            if md_gro.exists() and md_gro.is_file():
+                # 简单验证文件有效性
+                try:
+                    file_size = md_gro.stat().st_size
+                    if file_size > 1000:  # 至少1KB
+                        return str(md_gro)
+                except Exception:
+                    continue
+
+        return None
     
     def _run_splitch_analysis(self, temp_ndx_file: str):
         """Run gmx make_ndx with splitch command to analyze chains."""

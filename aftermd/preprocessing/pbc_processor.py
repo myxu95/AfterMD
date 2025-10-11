@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 import logging
 from ..utils.group_selector import GroupSelector
+from ..utils.cleanup_manager import CleanupManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class PBCProcessor:
         self.gmx = gmx_executable
         self.group_selector = None  # Will be initialized when topology is provided
         self.keep_temp_files = keep_temp_files
-        self.temp_files = []  # Track all temporary files created
+        self.cleanup_manager = CleanupManager(keep_temp_files=keep_temp_files, verbose=True)
         self._check_gromacs()
     
     def _check_gromacs(self):
@@ -36,33 +37,19 @@ class PBCProcessor:
     
     def _register_temp_file(self, filepath: str) -> str:
         """Register a temporary file for later cleanup."""
-        if filepath not in self.temp_files:
-            self.temp_files.append(filepath)
-            logger.debug(f"Registered temporary file: {filepath}")
-        return filepath
+        return self.cleanup_manager.register_file(filepath)
     
-    def _cleanup_temp_files(self):
-        """Clean up all registered temporary files."""
-        if self.keep_temp_files:
-            logger.info(f"Keeping {len(self.temp_files)} temporary files for debugging")
-            for temp_file in self.temp_files:
-                logger.info(f"  Temp file kept: {temp_file}")
-            return
+    def _cleanup_temp_files(self, output_dir: Optional[str] = None):
+        """Clean up all registered temporary files and apply pattern-based cleanup."""
+        # Clean registered files
+        self.cleanup_manager.cleanup_registered_files()
         
-        cleaned_count = 0
-        for temp_file in self.temp_files:
-            try:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-                    cleaned_count += 1
-                    logger.debug(f"Cleaned up temporary file: {temp_file}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up temporary file {temp_file}: {e}")
-        
-        if cleaned_count > 0:
-            logger.info(f"Cleaned up {cleaned_count} temporary files")
-        
-        self.temp_files.clear()
+        # Apply pattern-based cleanup in the output directory if provided
+        if output_dir and not self.keep_temp_files:
+            self.cleanup_manager.cleanup_by_patterns(
+                directory=output_dir,
+                categories=['gromacs_temp', 'index_files']
+            )
     
     def _run_gmx_command(self, 
                         command: List[str], 
@@ -211,8 +198,9 @@ class PBCProcessor:
                 if index_file:
                     self._register_temp_file(index_file)
             
-            # Clean up all registered temporary files
-            self._cleanup_temp_files()
+            # Clean up all registered temporary files and apply pattern cleanup
+            output_dir = str(Path(output).parent)
+            self._cleanup_temp_files(output_dir)
     
     def extract_frames(self,
                       trajectory: str,
@@ -308,91 +296,131 @@ class PBCProcessor:
             dt=dt
         )
         
-        # Copy md.gro file if it exists for better trajectory visualization
-        copied_gro_files = self._copy_gro_file(trajectory, topology, output_path)
-        
+        # Copy reference files (md.tpr and md.gro) for RMSD calculation and visualization
+        copied_files = self._copy_reference_files(trajectory, topology, output_path)
+
         results = {
             "processed": final_trajectory,
             "center_group": center_group,
             "fit_group": fit_group,
             "output_directory": str(output_path),
-            "reference_structures": copied_gro_files
+            "reference_structures": copied_files["gro_files"],
+            "reference_topology": copied_files["tpr_file"]
         }
         
         logger.info(f"Comprehensive PBC processing completed in: {output_dir}")
         return results
     
-    def _copy_gro_file(self, trajectory: str, topology: str, output_dir: Path) -> List[str]:
+    def _copy_reference_files(self, trajectory: str, topology: str, output_dir: Path) -> Dict[str, Any]:
         """
-        Copy md.gro file from the source directory to output directory for trajectory visualization.
-        
+        Copy md.tpr and md.gro files from source directory to output directory.
+
         Args:
             trajectory: Path to trajectory file
-            topology: Path to topology file  
+            topology: Path to topology file
             output_dir: Output directory path
-            
+
         Returns:
-            List of paths to copied .gro files
+            Dictionary with 'tpr_file' and 'gro_files' lists
         """
         import shutil
-        
+
         # Get the source directory (where the trajectory file is located)
         traj_path = Path(trajectory)
         source_dir = traj_path.parent
-        
-        # Common .gro file names to look for
-        gro_candidates = [
-            "md.gro",
-            "prod.gro", 
-            "production.gro",
-            f"{traj_path.stem}.gro"  # Same base name as trajectory
-        ]
-        
+
         # Also check the topology file's directory (in case files are in different locations)
         topo_path = Path(topology)
         search_dirs = [source_dir, topo_path.parent]
-        
+
         # Remove duplicates while preserving order
         search_dirs = list(dict.fromkeys(search_dirs))
-        
-        copied_files = []
-        
+
+        copied_gro_files = []
+        copied_tpr_file = None
+
+        # Common .gro file names to look for
+        gro_candidates = [
+            "md.gro",
+            "prod.gro",
+            "production.gro",
+            f"{traj_path.stem}.gro"
+        ]
+
+        # Common .tpr file names to look for
+        tpr_candidates = [
+            "md.tpr",
+            "prod.tpr",
+            "production.tpr",
+            f"{traj_path.stem}.tpr"
+        ]
+
+        # Copy .tpr file (highest priority for RMSD reference)
+        for search_dir in search_dirs:
+            for tpr_name in tpr_candidates:
+                tpr_file = search_dir / tpr_name
+
+                if tpr_file.exists() and tpr_file.is_file():
+                    try:
+                        dest_name = "md.tpr"
+                        dest_path = output_dir / dest_name
+
+                        if not dest_path.exists():
+                            shutil.copy2(tpr_file, dest_path)
+                            copied_tpr_file = str(dest_path)
+                            logger.info(f"Copied TPR file: {tpr_file} -> {dest_path}")
+                            break
+
+                    except Exception as e:
+                        logger.warning(f"Failed to copy {tpr_file}: {e}")
+
+            if copied_tpr_file:
+                break
+
+        # Copy .gro file
         for search_dir in search_dirs:
             for gro_name in gro_candidates:
                 gro_file = search_dir / gro_name
-                
+
                 if gro_file.exists() and gro_file.is_file():
                     try:
-                        # Copy to output directory with descriptive name
                         if gro_name == "md.gro":
                             dest_name = "md.gro"
                         else:
                             dest_name = f"reference_{gro_name}"
-                        
+
                         dest_path = output_dir / dest_name
-                        
-                        # Avoid copying the same file multiple times
+
                         if dest_path.exists():
                             continue
-                            
+
                         shutil.copy2(gro_file, dest_path)
-                        copied_files.append(str(dest_path))
-                        logger.info(f"Copied structure file: {gro_file} -> {dest_path}")
-                        
-                        # If we found md.gro, we're done (highest priority)
+                        copied_gro_files.append(str(dest_path))
+                        logger.info(f"Copied GRO file: {gro_file} -> {dest_path}")
+
                         if gro_name == "md.gro":
-                            return copied_files
-                            
+                            break
+
                     except Exception as e:
                         logger.warning(f"Failed to copy {gro_file}: {e}")
-        
-        if copied_files:
-            logger.info(f"Successfully copied {len(copied_files)} structure file(s) for trajectory visualization")
+
+            if copied_gro_files and copied_gro_files[0].endswith("md.gro"):
+                break
+
+        # Log summary
+        if copied_tpr_file:
+            logger.info(f"Successfully copied TPR reference file for RMSD calculation")
         else:
-            # If no .gro file found, log the search locations for debugging
-            logger.info("No .gro structure file found in the following locations:")
+            logger.warning("No .tpr file found - RMSD will use last frame as reference")
             for search_dir in search_dirs:
-                logger.info(f"  - {search_dir}")
-            logger.info("Trajectory processing will continue without reference structure")
-        
-        return copied_files
+                logger.info(f"  Searched in: {search_dir}")
+
+        if copied_gro_files:
+            logger.info(f"Successfully copied {len(copied_gro_files)} GRO structure file(s)")
+        else:
+            logger.info("No .gro structure file found for trajectory visualization")
+
+        return {
+            "tpr_file": copied_tpr_file,
+            "gro_files": copied_gro_files
+        }

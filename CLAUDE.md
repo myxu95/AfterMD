@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Status
-
+项目运行在服务器上的，但是修改都在本地进行，我会把我们修改的内容更新在服务器上来测试我们的项目不需要你进行本地测试
 This appears to be a new or empty repository under `/Users/xumingyu/Documents/work/research/AfrerMD`. The project name suggests it may be related to "After Markdown" or markdown processing research.
 
 ## 语言
@@ -11,8 +11,22 @@ This appears to be a new or empty repository under `/Users/xumingyu/Documents/wo
 2.对话采取中文对话
 
 ## 文件操作规则
-1.每当你写了测试脚本完成测试后，务必删除测试脚本，保持项目的整洁
+1.及时清理测试脚本，保持项目整洁性
 2.markdown只保留对用户必要的，对于某个步骤修改的解释可以放在一个临时文件夹里或者直接以对话的形式告诉我
+3.创建文件时的命名要兼顾在整体程序中的功能和职责，也要保持精简
+
+## 文件命名规范
+### 处理脚本命名规则
+对于PBC处理相关的脚本，按以下格式命名：
+- **单任务处理**: `pbc_process.py` - 处理单个MD轨迹的PBC校正
+- **批量处理**: `batch_pbc.py` - 本地批量处理多个MD任务
+- **集群处理**: `batch_pbc_slurm.py` - 生成SLURM集群批处理脚本
+
+### 命名原则
+1. **功能优先**: 体现核心处理步骤(如pbc_process)
+2. **规模区分**: single < batch < batch_slurm
+3. **执行环境**: 本地处理 vs 集群调度(slurm)
+4. **简洁明确**: 避免冗余词汇，保持功能性描述
 
 ## log板块
 对于文件运行的反馈要抓住重点，只在关键的地方去做反馈
