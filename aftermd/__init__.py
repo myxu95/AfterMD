@@ -15,9 +15,10 @@ from .utils import BatchProcessor, PlotManager, PathManager
 from .analysis import (
     trajectory, structure, quality,
     RMSDCalculator, RDFCalculator, RadiusGyrationCalculator,
-    DistanceCalculator, HydrogenBondAnalyzer,
-    BFactorAnalyzer, ContactMapCalculator, 
-    GeometryAnalyzer, AtomInfoExtractor
+    DistanceCalculator, HydrogenBondAnalyzer, RMSFAnalyzer,
+    BFactorAnalyzer, ContactMapCalculator,
+    GeometryAnalyzer, AtomInfoExtractor,
+    pHLATCRAnalyzer, pHLATCRHydrogenBondAnalyzer, ComplexAngleAnalyzer
 )
 
 # Quality analysis modules
@@ -27,18 +28,18 @@ from .analysis.quality import (
 )
 
 # Preprocessing modules
-from .preprocessing import PBCProcessor
+# from .preprocessing import PBCProcessor  # TODO: Implement PBCProcessor
 
 # Batch processing - Simple interface
-from .batch_process import process_md_tasks, discover_md_tasks, check_task_status
+# from .batch_process import process_md_tasks, discover_md_tasks, check_task_status  # TODO: Fix import
 
 # SLURM cluster support
-from .utils.slurm_generator import generate_slurm_scripts_for_md_tasks
+# from .utils.slurm_generator import generate_slurm_scripts_for_md_tasks  # TODO: Implement slurm_generator
 
 __all__ = [
     # Utils
     "BatchProcessor",
-    "PlotManager", 
+    "PlotManager",
     "PathManager",
     # Analysis submodules
     "trajectory",
@@ -50,6 +51,11 @@ __all__ = [
     "RadiusGyrationCalculator",
     "DistanceCalculator",
     "HydrogenBondAnalyzer",
+    "RMSFAnalyzer",
+    # pHLA-TCR specific analysis
+    "pHLATCRAnalyzer",
+    "pHLATCRHydrogenBondAnalyzer",
+    "ComplexAngleAnalyzer",
     # Structure analysis
     "BFactorAnalyzer",
     "ContactMapCalculator",
@@ -60,12 +66,12 @@ __all__ = [
     "StructureValidator",
     "BatchTracker",
     "QualityReporter",
-    # Preprocessing
-    "PBCProcessor",
-    # Batch processing
-    "process_md_tasks",
-    "discover_md_tasks", 
-    "check_task_status",
-    # SLURM cluster support
-    "generate_slurm_scripts_for_md_tasks"
+    # Preprocessing - TODO: Add when implemented
+    # "PBCProcessor",
+    # Batch processing - TODO: Fix imports
+    # "process_md_tasks",
+    # "discover_md_tasks",
+    # "check_task_status",
+    # SLURM cluster support - TODO: Implement
+    # "generate_slurm_scripts_for_md_tasks"
 ]

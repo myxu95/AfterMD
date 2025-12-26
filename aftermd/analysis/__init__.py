@@ -4,11 +4,19 @@ from . import quality
 
 # Import individual modules for convenience
 from .trajectory import (
+    pHLATCRAnalyzer,
+    pHLATCRHydrogenBondAnalyzer,
+    ComplexAngleAnalyzer,
     RMSDCalculator,
     RDFCalculator,
     RadiusGyrationCalculator,
     DistanceCalculator,
-    HydrogenBondAnalyzer
+    HydrogenBondAnalyzer,
+    RMSFAnalyzer,
+    extract_sequence_from_topology,
+    find_subsequence_position,
+    calculate_cdr3_rmsf,
+    analyze_phla_tcr_rmsf
 )
 
 from .structure import (
@@ -36,6 +44,14 @@ __all__ = [
     "RadiusGyrationCalculator",
     "DistanceCalculator",
     "HydrogenBondAnalyzer",
+    "RMSFAnalyzer",
+    "extract_sequence_from_topology",
+    "find_subsequence_position",
+    "calculate_cdr3_rmsf",
+    "analyze_phla_tcr_rmsf",
+    "pHLATCRAnalyzer",
+    "pHLATCRHydrogenBondAnalyzer",
+    "ComplexAngleAnalyzer",
     # Structure analysis modules
     "BFactorAnalyzer",
     "ContactMapCalculator",

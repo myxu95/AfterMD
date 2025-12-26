@@ -117,6 +117,42 @@ dmypy.json
 ehthumbs.db
 Thumbs.db
 
-# Custom excludes
-update2_28.sh
-quality_reports/
+# AfterMD specific ignores
+# Temporary analysis results
+**/analysis_results/
+**/trajectory_analysis/
+**/comparative_analysis/
+**/quality_check_results/
+**/slurm_scripts/
+
+# Molecular dynamics files
+*.xtc
+*.trr
+*.tpr
+*.gro
+*.pdb
+*.ndx
+*.xvg
+*.edr
+*.mdp
+
+# SLURM output files
+*.out
+*.err
+slurm-*.out
+
+# Temporary files
+**/temp/
+**/tmp/
+**/.tmp/
+*.tmp
+*.temp
+*~
+
+# Backup files
+*.bak
+*.backup
+*_backup
+
+# Generated documentation
+docs/_build/

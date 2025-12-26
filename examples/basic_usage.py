@@ -9,12 +9,12 @@ for MD trajectory analysis.
 import os
 from pathlib import Path
 from aftermd import (
-    BatchProcessor, 
-    PathManager, 
-    PlotManager, 
-    PBCProcessor, 
-    TrajectoryAnalyzer, 
-    StructureAnalyzer
+    BatchProcessor,
+    PathManager,
+    PlotManager,
+    PBCProcessor,
+    RMSDCalculator,
+    BFactorAnalyzer
 )
 
 
@@ -46,30 +46,22 @@ def example_path_management():
 def example_trajectory_analysis():
     """Example of trajectory analysis."""
     print("\n=== Trajectory Analysis Example ===")
-    
-    # Initialize analyzer (replace with actual file paths)
+
+    # Initialize RMSD calculator (replace with actual file paths)
     topology = "protein.tpr"
     trajectory = "trajectory.xtc"
-    
+
     if os.path.exists(topology) and os.path.exists(trajectory):
-        analyzer = TrajectoryAnalyzer(topology, trajectory)
-        
-        # Calculate RMSD
-        times, rmsd = analyzer.calculate_rmsd(
+        # Calculate RMSD using RMSDCalculator
+        rmsd_calc = RMSDCalculator(topology, trajectory)
+
+        times, rmsd = rmsd_calc.calculate_rmsd(
             selection="protein and name CA",
             output_file="rmsd_analysis.csv"
         )
-        
-        # Calculate radius of gyration
-        times_rg, rg = analyzer.calculate_gyration_radius(
-            selection="protein",
-            output_file="radius_gyration.csv"
-        )
-        
-        # Get trajectory info
-        info = analyzer.get_trajectory_info()
-        print(f"Trajectory info: {info}")
-        
+
+        print(f"RMSD calculation completed")
+
     else:
         print("Trajectory files not found - using placeholder")
 
@@ -77,35 +69,26 @@ def example_trajectory_analysis():
 def example_structure_analysis():
     """Example of structure analysis."""
     print("\n=== Structure Analysis Example ===")
-    
-    # Initialize analyzer (replace with actual PDB file)
+
+    # Initialize B-factor analyzer (replace with actual PDB file)
     structure_file = "protein.pdb"
-    
+
     if os.path.exists(structure_file):
-        analyzer = StructureAnalyzer(structure_file)
-        
-        # Extract B-factors
-        indices, bfactors = analyzer.extract_bfactors(
+        # Extract B-factors using BFactorAnalyzer
+        bfactor_analyzer = BFactorAnalyzer(structure_file)
+
+        indices, bfactors = bfactor_analyzer.extract_bfactors(
             selection="protein",
             output_file="bfactors.csv"
         )
-        
+
         # Analyze B-factors by residue
-        residue_stats = analyzer.analyze_bfactor_by_residue(
+        residue_stats = bfactor_analyzer.analyze_bfactor_by_residue(
             output_file="bfactor_by_residue.csv"
         )
-        
-        # Calculate contact map
-        contact_map = analyzer.calculate_contact_map(
-            selection="name CA",
-            cutoff=8.0,
-            output_file="contact_map.txt"
-        )
-        
-        # Get structure info
-        info = analyzer.get_structure_info()
-        print(f"Structure info: {info}")
-        
+
+        print(f"B-factor analysis completed")
+
     else:
         print("Structure file not found - using placeholder")
 

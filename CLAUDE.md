@@ -3,7 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Status
-
+项目运行在服务器上的，但是修改都在本地进行，我会把我们修改的内容更新在服务器上来测试我们的项目不需要你进行本地测试
 This appears to be a new or empty repository under `/Users/xumingyu/Documents/work/research/AfrerMD`. The project name suggests it may be related to "After Markdown" or markdown processing research.
 
 ## 语言
@@ -11,8 +11,22 @@ This appears to be a new or empty repository under `/Users/xumingyu/Documents/wo
 2.对话采取中文对话
 
 ## 文件操作规则
-1.每当你写了测试脚本完成测试后，务必删除测试脚本，保持项目的整洁
+1.及时清理测试脚本，保持项目整洁性
 2.markdown只保留对用户必要的，对于某个步骤修改的解释可以放在一个临时文件夹里或者直接以对话的形式告诉我
+3.创建文件时的命名要兼顾在整体程序中的功能和职责，也要保持精简
+
+## 文件命名规范
+### 处理脚本命名规则
+对于PBC处理相关的脚本，按以下格式命名：
+- **单任务处理**: `pbc_process.py` - 处理单个MD轨迹的PBC校正
+- **批量处理**: `batch_pbc.py` - 本地批量处理多个MD任务
+- **集群处理**: `batch_pbc_slurm.py` - 生成SLURM集群批处理脚本
+
+### 命名原则
+1. **功能优先**: 体现核心处理步骤(如pbc_process)
+2. **规模区分**: single < batch < batch_slurm
+3. **执行环境**: 本地处理 vs 集群调度(slurm)
+4. **简洁明确**: 避免冗余词汇，保持功能性描述
 
 ## log板块
 对于文件运行的反馈要抓住重点，只在关键的地方去做反馈
@@ -329,4 +343,292 @@ comprehensive_report = reporter.generate_comprehensive_report(
 
 ### 静态结构分析
 1.PBD文件原子的B-facter的信息获取并且绘图的展示
+
+## 新增模块 (2025-12)
+
+### Analysis/Angles (角度分析模块)
+
+专门用于分子动力学轨迹中的角度相关分析，特别针对TCR-pMHC复合物对接姿态研究。
+
+**核心类**:
+- `PrincipalAxesCalculator`: 主轴计算基础类，基于惯性张量对角化
+- `DockingAngleAnalyzer`: TCR-pMHC对接角度分析 (Twist/Tilt/Swing三种角度)
+- `DihedralCalculator`: 通用二面角计算器
+- `VectorAngleCalculator`: 向量夹角计算工具类
+
+**模块架构**:
+```
+analysis/angles/
+├── __init__.py
+├── principal_axes.py      # 主轴计算基础类 (~150行)
+├── docking_angles.py      # TCR-pMHC对接角度 (~250行)
+├── dihedral.py            # 通用二面角 (~100行)
+└── vector_angles.py       # 向量夹角 (~100行)
+```
+
+**主要功能**:
+
+1. **主轴计算** (principal_axes.py)
+   - 基于惯性张量的主轴计算 (复用GeometryAnalyzer方法)
+   - 支持单帧和整条轨迹的主轴演化
+   - 返回特征值和特征向量 (按惯性矩降序排列)
+
+2. **TCR-pMHC对接角度** (docking_angles.py)
+   - **Twist角**: TCR二硫键连线在MHC平面上投影与MHC主轴的夹角
+   - **Tilt角**: TCR主轴在MHC平面上投影与MHC主轴的夹角
+   - **Swing角**: TCR连线相对peptide的侧向偏移角度
+   - 源自VMD脚本，完全Python实现
+
+3. **二面角计算** (dihedral.py)
+   - 支持任意4个原子定义的二面角
+   - 主链φ/ψ角和侧链旋转角
+   - 返回-180到180度范围
+
+4. **向量夹角** (vector_angles.py)
+   - 主轴-主轴夹角
+   - 质心连线-参考方向夹角
+   - 灵活的向量角度计算接口
+
+**使用示例**:
+```python
+from aftermd.analysis.angles import DockingAngleAnalyzer
+
+analyzer = DockingAngleAnalyzer("md.tpr", "md_pbc.xtc")
+times, twist, tilt, swing = analyzer.calculate_docking_angles_trajectory(
+    mhc_selection="segname PROA and resid 50:86 140:176",
+    tcr_alpha_cys="segname PROD and resid 89:94 20:25 and resname CYS and name CA",
+    tcr_beta_cys="segname PROE and resid 89:94 20:25 and resname CYS and name CA",
+    tcr_v_selection="segname PROD PROE and resid 3:115",
+    peptide_selection="segname PROC",
+    output_file="docking_angles.csv"
+)
+```
+
+**技术特点**:
+- 纯Python实现，基于MDAnalysis和NumPy
+- 复用现有GeometryAnalyzer的惯性张量计算 (geometry.py:55-68)
+- 向量投影和几何计算优化
+- 输出XVG/CSV格式，兼容GROMACS工具链
+
+---
+
+### Analysis/Interface (界面分析模块)
+
+用于分析蛋白质-蛋白质相互作用界面的物理化学性质。
+
+**核心类**:
+- `BuriedSurfaceCalculator`: 埋藏表面积计算
+- `ContactResidueAnalyzer`: 接触残基对统计
+- `ContactAtomAnalyzer`: 接触原子详细信息
+- `ContactHeatmapGenerator`: 界面接触热力图
+
+**模块架构**:
+```
+analysis/interface/
+├── __init__.py
+├── buried_surface.py      # 埋藏表面积 (~120行)
+├── contact_residues.py    # 接触残基统计 (~150行)
+├── contact_atoms.py       # 接触原子详情 (~130行)
+└── contact_heatmap.py     # 界面热力图 (~120行)
+```
+
+**主要功能**:
+
+1. **埋藏表面积 (BSA)** (buried_surface.py)
+   - 公式: BSA = (SASA_A + SASA_B - SASA_AB) / 2
+   - 使用MDAnalysis.analysis.sasa模块
+   - 探针半径1.4 Å (水分子)
+   - 支持轨迹时间演化
+
+2. **接触残基对统计** (contact_residues.py)
+   - 基于距离截断 (默认4.0 Å) 识别接触
+   - 统计接触频率 (接触帧数/总帧数)
+   - 输出DataFrame: ResA_ID, ResA_Name, ResB_ID, ResB_Name, Frequency
+
+3. **接触原子详细信息** (contact_atoms.py)
+   - 逐帧输出所有接触原子对
+   - 包含原子ID、名称、残基信息、距离
+   - 使用距离矩阵加速计算
+   - 支持stride参数减少计算量
+
+4. **界面热力图** (contact_heatmap.py)
+   - 生成残基-残基接触频率矩阵
+   - 使用seaborn绘制热力图
+   - 输出300 dpi高分辨率图像
+   - 集成PlotManager样式
+
+**使用示例**:
+```python
+from aftermd.analysis.interface import (
+    BuriedSurfaceCalculator,
+    ContactResidueAnalyzer,
+    ContactHeatmapGenerator
+)
+
+# BSA分析
+bsa_calc = BuriedSurfaceCalculator("md.tpr", "md.xtc")
+times, bsa_values = bsa_calc.calculate_bsa_trajectory(
+    selection_a="segname PROA PROB PROC",  # pMHC
+    selection_b="segname PROD PROE",       # TCR
+    output_file="bsa_trajectory.csv"
+)
+
+# 接触频率统计
+contact_analyzer = ContactResidueAnalyzer("md.tpr", "md.xtc")
+contact_df = contact_analyzer.calculate_contact_frequency(
+    selection_a="segname PROD",  # TCR alpha
+    selection_b="segname PROC",  # Peptide
+    cutoff=4.0
+)
+
+# 热力图生成
+heatmap_gen = ContactHeatmapGenerator("md.tpr", "md.xtc")
+contact_matrix = heatmap_gen.generate_and_plot(
+    selection_a="segname PROD",
+    selection_b="segname PROC",
+    output_file="contact_heatmap.png"
+)
+```
+
+**性能优化**:
+- 距离矩阵向量化计算 (MDAnalysis.lib.distances.distance_array)
+- 轨迹分块处理 (每次1000帧)
+- 流式写入大文件
+- 并行计算多任务
+
+---
+
+### Utils/BatchAnalyzer (统一批量分析工具)
+
+集成角度分析和界面分析的统一批量处理接口。
+
+**文件**: `aftermd/utils/batch_analyzer.py` (~400行)
+
+**核心类**:
+```python
+class BatchAnalyzer:
+    def batch_docking_angles()        # 批量对接角度分析
+    def batch_bsa_analysis()          # 批量BSA分析
+    def batch_contact_analysis()      # 批量接触分析
+    def comprehensive_analysis()      # 综合批量分析
+```
+
+**主要功能**:
+
+1. **批量角度分析**
+   - 并行处理多个MD任务的对接角度
+   - 自动创建任务输出目录
+   - 错误隔离：单任务失败不影响其他
+
+2. **批量界面分析**
+   - 支持frequency/atoms/heatmap三种模式
+   - 统一的任务配置格式
+   - 生成综合分析报告
+
+3. **综合分析**
+   - 灵活的模块组合 (docking_angles, bsa, contact_frequency, contact_heatmap)
+   - 基于ProcessPoolExecutor的多进程并行
+   - 详细的处理日志和错误报告
+
+**使用示例**:
+```python
+from aftermd.utils import BatchAnalyzer
+
+tasks = [
+    {
+        'name': '1AO7',
+        'topology': 'data/1AO7/md.tpr',
+        'trajectory': 'data/1AO7/md_pbc.xtc',
+        'mhc_selection': '...',
+        'tcr_alpha_cys': '...',
+        # ... 其他选择参数
+    },
+    # 更多任务...
+]
+
+batch_analyzer = BatchAnalyzer()
+results = batch_analyzer.comprehensive_analysis(
+    task_list=tasks,
+    analysis_modules=['docking_angles', 'bsa', 'contact_frequency', 'contact_heatmap'],
+    max_workers=4,
+    output_dir="./results"
+)
+```
+
+**设计特点**:
+- 基于现有BatchProcessor模式 (batch_processor.py)
+- 完善的错误处理和日志记录
+- 支持YAML/JSON配置文件
+- 生成汇总统计报告
+
+**输出目录结构**:
+```
+results/
+└── task_name/
+    ├── angles/
+    │   ├── docking_angles.csv
+    │   ├── twist_angle.xvg
+    │   ├── tilt_angle.xvg
+    │   └── swing_angle.xvg
+    ├── interface/
+    │   ├── bsa_trajectory.csv
+    │   ├── contact_frequency.csv
+    │   ├── contact_atoms.csv
+    │   └── contact_heatmap.png
+    └── plots/
+        ├── docking_angles.png
+        └── bsa_evolution.png
+```
+
+---
+
+### 模块依赖关系
+
+```
+principal_axes.py (基础)
+    ├── docking_angles.py (继承)
+    ├── vector_angles.py (继承)
+    └── 独立使用
+
+dihedral.py (独立)
+
+buried_surface.py (独立)
+contact_residues.py (独立)
+contact_atoms.py (独立)
+contact_heatmap.py (依赖contact_residues算法)
+
+batch_analyzer.py (调用所有上述模块)
+```
+
+### 数据流扩展
+
+```
+Processed trajectories
+    ├── Angle Analysis
+    │   ├── Principal axes calculation
+    │   ├── Docking angles (Twist/Tilt/Swing)
+    │   ├── Dihedral angles
+    │   └── Vector angles
+    └── Interface Analysis
+        ├── Buried surface area (BSA)
+        ├── Contact residue statistics
+        ├── Contact atom details
+        └── Contact heatmap visualization
+            ↓
+    PlotManager (统一可视化)
+            ↓
+    Batch analysis reports
+```
+
+### 参考来源
+
+这些模块的算法源自：
+- VMD脚本: `development/angle_analysis/Analysis-scripts/`
+  - mkvmd_twistangle.sh
+  - mkvmd_tiltangle.sh
+  - mkvmd_swingangle.sh
+  - mkvmd_buriedarea.sh
+  - mkvmd_PairContact.sh
+
+完全用Python/MDAnalysis重新实现，无需VMD依赖。
 

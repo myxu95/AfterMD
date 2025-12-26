@@ -148,7 +148,7 @@ class BatchProcessor:
             if item.is_dir():
                 task_name = item.name
                 md_files = self.find_md_input_files(str(item))
-                
+
                 if md_files:
                     trajectory, topology = md_files
                     discovered_tasks[task_name] = (trajectory, topology)

@@ -36,41 +36,43 @@ class RMSDCalculator:
             logger.error(f"Failed to load trajectory for RMSD: {e}")
             raise
     
-    def calculate_mdanalysis(self, 
+    def calculate_mdanalysis(self,
                            selection: str = "protein and name CA",
                            reference_frame: int = 0,
                            output_file: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray]:
         """
         Calculate RMSD using MDAnalysis.
-        
+
         Args:
             selection: Atom selection for RMSD calculation
             reference_frame: Reference frame index
             output_file: Optional output file for RMSD data
-            
+
         Returns:
             Tuple of (time, rmsd) arrays
         """
         atoms = self.universe.select_atoms(selection)
-        reference = self.universe.select_atoms(selection)
+
+        # Set reference frame and store reference coordinates
         self.universe.trajectory[reference_frame]
-        reference_coords = reference.positions.copy()
-        
+        reference_coords = atoms.positions.copy()
+
         rmsd_values = []
         times = []
-        
+
+        # Calculate RMSD for each frame
         for ts in self.universe.trajectory:
-            align.alignto(atoms, reference)
-            rmsd_val = rms.rmsd(atoms.positions, reference_coords)
+            # Calculate RMSD with optimal alignment (without modifying coordinates)
+            rmsd_val = rms.rmsd(atoms.positions, reference_coords, superposition=True)
             rmsd_values.append(rmsd_val)
             times.append(ts.time)
-        
+
         times = np.array(times)
         rmsd_values = np.array(rmsd_values)
-        
+
         if output_file:
             self._save_data(times, rmsd_values, output_file)
-        
+
         logger.info(f"MDAnalysis RMSD completed. Mean RMSD: {np.mean(rmsd_values):.3f} nm")
         return times, rmsd_values
     
@@ -115,7 +117,7 @@ class RMSDCalculator:
                 capture_output=True,
                 check=True
             )
-            logger.info(f"GROMACS RMSD calculation completed using group '{selection_group}': {output_file}")
+            logger.info(f"GROMACS RMSD calculation completed: {output_file}")
             return output_file
         except subprocess.CalledProcessError as e:
             logger.error(f"GROMACS RMSD calculation failed: {e}")
